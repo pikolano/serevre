@@ -1,42 +1,42 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import uvicorn
-from typing import Dict
+from typing import Dict, Set
 import json
 
 app = FastAPI()
 
-# Хранилище реакций: {"oneevent1": {"like": 0, "thanks": 0, ...}}
-reactions: Dict[str, Dict[str, int]] = {}
+# Хранилище: {"inter": 5, "barsa": 3}
+reactions: Dict[str, int] = {"inter": 0, "barsa": 0}
 
-# WebSocket подключения
-active_connections = []
+# ID пользователей, которые уже голосовали
+voted_users: Set[str] = set()
 
-@app.websocket("/ws/{channel}")
-async def websocket_endpoint(websocket: WebSocket, channel: str):
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    active_connections.append(websocket)
-    
-    # Инициализация реакций для канала
-    if channel not in reactions:
-        reactions[channel] = {"inter": 0, "barsa": 0}
-    
-    # Отправляем текущие реакции
-    await websocket.send_text(json.dumps(reactions[channel]))
     
     try:
+        # Отправляем текущие реакции
+        await websocket.send_text(json.dumps(reactions))
+        
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
-            if message["type"] == "reaction":
-                reaction_type = message["data"]
-                if reaction_type in reactions[channel]:
-                    reactions[channel][reaction_type] += 1
-                    # Рассылаем обновление всем в канале
-                    for conn in active_connections:
-                        await conn.send_text(json.dumps(reactions[channel]))
+            
+            # Проверяем, что пользователь еще не голосовал
+            user_id = message.get("user_id")
+            if not user_id or user_id in voted_users:
+                continue
+                
+            if message["type"] == "reaction" and message["team"] in reactions:
+                reactions[message["team"]] += 1
+                voted_users.add(user_id)
+                
+                # Отправляем обновление всем
+                await websocket.send_text(json.dumps(reactions))
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
+        pass
 
 @app.get("/")
 async def root():
