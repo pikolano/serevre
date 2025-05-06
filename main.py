@@ -1,44 +1,62 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-import uvicorn
-import json
-import os
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
 
-app = FastAPI()
+const app = express();
+app.use(cors());
 
-reactions = {
-    "like": {"emoji": "👍", "text": "Лайк", "count": 0},
-    "thanks": {"emoji": "🙏", "text": "Спасибо!", "count": 0},
-    "lag": {"emoji": "🐌", "text": "Лагает...", "count": 0},
-    "scary": {"emoji": "👻", "text": "Страшно!", "count": 0}
-}
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
-active_connections = []
+// Хранилище реакций по каналам
+const channelReactions = {};
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    active_connections.append(websocket)
-    try:
-        await websocket.send_text(json.dumps({"type": "init", "data": reactions}))
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            if message["type"] == "reaction":
-                reaction_type = message["data"]
-                if reaction_type in reactions:
-                    reactions[reaction_type]["count"] += 1
-                    for connection in active_connections:
-                        await connection.send_text(json.dumps({
-                            "type": "update",
-                            "data": reactions
-                        }))
-    except WebSocketDisconnect:
-        active_connections.remove(websocket)
+io.on('connection', (socket) => {
+  console.log('Новое подключение:', socket.id);
 
-@app.get("/")
-async def root():
-    return {"status": "ok"}
+  // Обработка присоединения к каналу
+  socket.on('join_channel', (channel) => {
+    socket.join(channel);
+    
+    // Инициализируем реакции для канала, если их нет
+    if (!channelReactions[channel]) {
+      channelReactions[channel] = {
+        like: 0,
+        thanks: 0,
+        lag: 0,
+        scary: 0
+      };
+    }
+    
+    // Отправляем текущие реакции новому пользователю
+    socket.emit('reactions_init', channelReactions[channel]);
+  });
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+  // Обработка реакции
+  socket.on('send_reaction', ({ channel, type }) => {
+    if (channelReactions[channel] && channelReactions[channel][type] !== undefined) {
+      channelReactions[channel][type]++;
+      
+      // Отправляем обновление всем в канале
+      io.to(channel).emit('reaction_update', {
+        type,
+        count: channelReactions[channel][type]
+      });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Отключение:', socket.id);
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Сервер запущен на порту ${PORT}`);
+});
