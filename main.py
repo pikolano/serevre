@@ -19,7 +19,7 @@ async def websocket_endpoint(websocket: WebSocket, channel: str):
     
     # Инициализация реакций для канала
     if channel not in reactions:
-        reactions[channel] = {"like": 0, "thanks": 0, "lag": 0, "scary": 0}
+        reactions[channel] = {"inter": 0, "barsa": 0}
     
     # Отправляем текущие реакции
     await websocket.send_text(json.dumps(reactions[channel]))
