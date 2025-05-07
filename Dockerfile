@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY main.py .
 
-RUN pip install fastapi uvicorn websockets
+RUN pip install flask flask-socketio
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "main.py"]
