@@ -1,46 +1,33 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-import uvicorn
-from typing import Dict, Set
-import json
+# server.py
+from flask import Flask, render_template
+from flask_socketio import SocketIO, emit
 
-app = FastAPI()
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Хранилище: {"inter": 5, "barsa": 3}
-reactions: Dict[str, int] = {"inter": 0, "barsa": 0}
+# Хранение количества реакций
+reactions = {
+    "Лайк!": 0,
+    "Страшно...": 0,
+    "Лагает": 0,
+    "Вперед!": 0
+}
 
-# ID пользователей, которые уже голосовали
-voted_users: Set[str] = set()
+@app.route('/')
+def index():
+    return 'Сервер реакций работает!'
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    
-    try:
-        # Отправляем текущие реакции
-        await websocket.send_text(json.dumps(reactions))
-        
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            # Проверяем, что пользователь еще не голосовал
-            user_id = message.get("user_id")
-            if not user_id or user_id in voted_users:
-                continue
-                
-            if message["type"] == "reaction" and message["team"] in reactions:
-                reactions[message["team"]] += 1
-                voted_users.add(user_id)
-                
-                # Отправляем обновление всем
-                await websocket.send_text(json.dumps(reactions))
-    except WebSocketDisconnect:
-        pass
+@socketio.on('send_reaction')
+def handle_reaction(data):
+    reaction = data.get("reaction")
+    if reaction in reactions:
+        reactions[reaction] += 1
+        emit('update_reactions', reactions, broadcast=True)
 
-@app.get("/")
-async def root():
-    return {"status": "ok"}
+@socketio.on('get_reactions')
+def send_initial_data():
+    emit('update_reactions', reactions)
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == '__main__':
+    socketio.run(app, host='0.0.0.0', port=5000)
+
